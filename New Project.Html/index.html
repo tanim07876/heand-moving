@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎨 3D Particle Hand Gesture Interaction</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- MediaPipe Hands -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div class="loading-screen" id="loadingScreen">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">Initializing</div>
+    <div class="loading-subtext">Loading 3D Particle Engine & Hand Tracking...</div>
+</div>
+
+<!-- Instruction Overlay -->
+<div class="instruction-overlay" id="instructionOverlay">
+    <div class="instruction-content">
+        <h2>✋ Hand Gesture Particles</h2>
+        <p>
+            Control 3D particle effects with your hand movements.<br><br>
+            ✊ Fist → Spiral Vortex<br>
+            ✋ Open Hand → Galaxy Explosion<br>
+            ✌️ Two Fingers → DNA Helix<br>
+            👆 One Finger → Fire Fountain<br>
+            🤟 Three Fingers → Matrix Rain<br><br>
+            Allow camera access and show your hand!
+        </p>
+        <button class="start-btn" id="startBtn">Start Now 🚀</button>
+    </div>
+</div>
+
+<!-- Three.js Canvas -->
+<canvas id="particleCanvas"></canvas>
+
+<!-- Webcam -->
+<video id="webcam" autoplay playsinline></video>
+<canvas id="handCanvas"></canvas>
+
+<!-- HUD Top -->
+<div class="hud-top">
+    <div class="title-section">
+        <h1>✨ Particle Gesture</h1>
+        <div class="subtitle">Hand Tracking × 3D Particles</div>
+    </div>
+    <div class="status-section">
+        <div class="status-badge">
+            <div class="status-dot" id="handStatus"></div>
+            <span id="handStatusText">Searching for hand...</span>
+        </div>
+        <div class="status-badge">
+            <div class="status-dot" id="cameraStatus"></div>
+            <span id="cameraStatusText">Camera Off</span>
+        </div>
+    </div>
+</div>
+
+<!-- FPS -->
+<div class="fps-counter" id="fpsCounter">60 FPS</div>
+
+<!-- Mode Selector -->
+<div class="mode-selector">
+    <button class="mode-btn active" data-mode="0" title="Auto (Gesture)">🤚</button>
+    <button class="mode-btn" data-mode="1" title="Spiral Vortex">🌀</button>
+    <button class="mode-btn" data-mode="2" title="Galaxy Explosion">💫</button>
+    <button class="mode-btn" data-mode="3" title="DNA Helix">🧬</button>
+    <button class="mode-btn" data-mode="4" title="Fire Fountain">🔥</button>
+    <button class="mode-btn" data-mode="5" title="Matrix Rain">💚</button>
+    <button class="mode-btn" data-mode="6" title="Heart Shape">💜</button>
+</div>
+
+<!-- Gesture Panel -->
+<div class="gesture-panel" id="gesturePanel">
+    <div class="gesture-card" id="gestureCard_fist">
+        <div class="gesture-name"><span class="gesture-icon">✊</span> Spiral Vortex</div>
+        <div class="gesture-desc">Close your fist</div>
+    </div>
+    <div class="gesture-card" id="gestureCard_open">
+        <div class="gesture-name"><span class="gesture-icon">✋</span> Galaxy Swirl</div>
+        <div class="gesture-desc">Open your hand</div>
+    </div>
+    <div class="gesture-card" id="gestureCard_peace">
+        <div class="gesture-name"><span class="gesture-icon">✌️</span> DNA Helix</div>
+        <div class="gesture-desc">Show two fingers</div>
+    </div>
+    <div class="gesture-card" id="gestureCard_point">
+        <div class="gesture-name"><span class="gesture-icon">👆</span> Plasma Stream</div>
+        <div class="gesture-desc">Point one finger up</div>
+    </div>
+    <div class="gesture-card" id="gestureCard_three">
+        <div class="gesture-name"><span class="gesture-icon">🤟</span> Digital Rain</div>
+        <div class="gesture-desc">Show three fingers</div>
+    </div>
+</div>
+
+<!-- Current Effect -->
+<div class="current-effect" id="currentEffect">
+    <div class="effect-label">Current Effect</div>
+    <div class="effect-name" id="effectName">Spiral</div>
+</div>
+
+<!-- Particle Count -->
+<div class="particle-count">
+    <div class="count-value" id="particleCountValue">15000</div>
+    <div class="count-label">Particles</div>
+</div>
+
+<script>
+// ============================================
+// 3D PARTICLE HAND GESTURE INTERACTION ENGINE
+// ============================================
+
+const PARTICLE_COUNT = 15000;
+const TRAIL_COUNT = 3000;
+
+// State
+let handPosition = { x: 0.5, y: 0.5, z: 0 };
+let targetHandPos = { x: 0.5, y: 0.5, z: 0 };
+let handDetected = false;
+let currentGesture = 'none';
+let currentMode = 0; // 0 = auto (gesture), 1-6 = forced mode
+let effectTransition = 0;
+let lastGesture = 'none';
+let gestureStartTime = 0;
+let pinchDistance = 0;
+let handRotation = 0;
+let fingerSpread = 0;
+
+// FPS
+let frameCount = 0;
+let lastFpsTime = performance.now();
+
+// ============================================
+// THREE.JS SETUP
+// ============================================
+const canvas = document.getElementById('particleCanvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000000);
+scene.fog = new THREE.FogExp2(0x000000, 0.0005);
+
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+camera.position.z = 50;
+
+// ============================================
+// PARTICLE SYSTEM
+// ============================================
+const particleGeometry = new THREE.BufferGeometry();
+const positions = new Float32Array(PARTICLE_COUNT * 3);
+const colors = new Float32Array(PARTICLE_COUNT * 3);
+const sizes = new Float32Array(PARTICLE_COUNT);
+const velocities = new Float32Array(PARTICLE_COUNT * 3);
+const lifetimes = new Float32Array(PARTICLE_COUNT);
+const originalPositions = new Float32Array(PARTICLE_COUNT * 3);
+const phases = new Float32Array(PARTICLE_COUNT);
+
+for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const i3 = i * 3;
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = Math.random() * 30;
+
+    positions[i3] = r * Math.sin(phi) * Math.cos(theta);
+    positions[i3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+    positions[i3 + 2] = r * Math.cos(phi);
+
+    originalPositions[i3] = positions[i3];
+    originalPositions[i3 + 1] = positions[i3 + 1];
+    originalPositions[i3 + 2] = positions[i3 + 2];
+
+    colors[i3] = 0;
+    colors[i3 + 1] = 1;
+    colors[i3 + 2] = 0.8;
+
+    sizes[i] = Math.random() * 2 + 0.5;
+    velocities[i3] = (Math.random() - 0.5) * 0.1;
+    velocities[i3 + 1] = (Math.random() - 0.5) * 0.1;
+    velocities[i3 + 2] = (Math.random() - 0.5) * 0.1;
+    lifetimes[i] = Math.random();
+    phases[i] = Math.random() * Math.PI * 2;
+}
+
+particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+particleGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+particleGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+
+// Custom shader material
+const particleMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        time: { value: 0 },
+        pointTexture: { value: createParticleTexture() }
+    },
+    vertexShader: `
+        attribute float size;
+        attribute vec3 color;
+        varying vec3 vColor;
+        varying float vAlpha;
+        uniform float time;
+
+        void main() {
+            vColor = color;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            float dist = length(mvPosition.xyz);
+            vAlpha = clamp(1.0 - dist / 200.0, 0.1, 1.0);
+            gl_PointSize = size * (150.0 / -mvPosition.z);
+            gl_PointSize = clamp(gl_PointSize, 1.0, 30.0);
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+        uniform sampler2D pointTexture;
+
+        void main() {
+            vec2 uv = gl_PointCoord;
+            float d = length(uv - 0.5);
+            float alpha = smoothstep(0.5, 0.0, d) * vAlpha;
+            gl_FragColor = vec4(vColor, alpha);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+
+const particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+scene.add(particleSystem);
+
+// Trail particles
+const trailGeometry = new THREE.BufferGeometry();
+const trailPositions = new Float32Array(TRAIL_COUNT * 3);
+const trailColors = new Float32Array(TRAIL_COUNT * 3);
+const trailSizes = new Float32Array(TRAIL_COUNT);
+
+for (let i = 0; i < TRAIL_COUNT; i++) {
+    trailPositions[i * 3] = 0;
+    trailPositions[i * 3 + 1] = 0;
+    trailPositions[i * 3 + 2] = 0;
+    trailColors[i * 3] = 0;
+    trailColors[i * 3 + 1] = 1;
+    trailColors[i * 3 + 2] = 0.8;
+    trailSizes[i] = Math.random() * 1.5 + 0.3;
+}
+
+trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+trailGeometry.setAttribute('size', new THREE.BufferAttribute(trailSizes, 1));
+
+const trailMaterial = new THREE.ShaderMaterial({
+    uniforms: {
+        time: { value: 0 }
+    },
+    vertexShader: `
+        attribute float size;
+        attribute vec3 color;
+        varying vec3 vColor;
+        varying float vAlpha;
+
+        void main() {
+            vColor = color;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            vAlpha = clamp(1.0 - length(mvPosition.xyz) / 150.0, 0.05, 0.8);
+            gl_PointSize = size * (100.0 / -mvPosition.z);
+            gl_PointSize = clamp(gl_PointSize, 0.5, 15.0);
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vColor;
+        varying float vAlpha;
+
+        void main() {
+            float d = length(gl_PointCoord - 0.5);
+            float alpha = smoothstep(0.5, 0.0, d) * vAlpha * 0.5;
+            gl_FragColor = vec4(vColor, alpha);
+        }
+    `,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+});
+
+const trailSystem = new THREE.Points(trailGeometry, trailMaterial);
+scene.add(trailSystem);
+
+// ============================================
+// PARTICLE TEXTURE
+// ============================================
+function createParticleTexture() {
+    const size = 64;
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    const ctx = c.getContext('2d');
+    const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(0.3, 'rgba(255,255,255,0.6)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    const texture = new THREE.CanvasTexture(c);
+    return texture;
+}
+
+// ============================================
+// COLOR PALETTES
+// ============================================
+const palettes = {
+    spiral: [
+        [0, 1, 0.85],     // bright turquoise
+        [0, 0.9, 0.75],   // turquoise
+        [0.1, 0.8, 0.65], // teal-cyan
+        [0.2, 0.95, 0.8], // cyan-green
+    ],
+    galaxy: [
+        [0, 1, 0.85],     // turquoise galaxy
+        [0, 0.7, 0.6],    // teal
+        [0.1, 0.6, 0.55], // cyan-teal
+    ],
+    dna: [
+        [0, 1, 0.85],     // turquoise DNA
+        [0.2, 0.95, 0.8], // light cyan-green
+        [0, 0.85, 0.7],   // teal
+    ],
+    fire: [
+        [0, 1, 0.85],     // turquoise flames
+        [0.3, 0.85, 0.7], // teal-cyan
+        [0.1, 0.95, 0.75], // bright turquoise
+    ],
+    matrix: [
+        [0, 1, 0.85],     // turquoise matrix
+        [0, 0.8, 0.65],   // teal
+        [0.15, 0.9, 0.75], // cyan-teal
+    ],
+    heart: [
+        [0, 1, 0.85],     // turquoise heart
+        [0.2, 0.9, 0.8],  // light teal
+        [0, 0.8, 0.65],   // teal
+    ]
+};
+
+// ============================================
+// GESTURE DETECTION
+// ============================================
+function detectGesture(landmarks) {
+    if (!landmarks || landmarks.length === 0) return 'none';
+
+    const hand = landmarks[0];
+
+    // Finger tip and pip landmarks
+    const thumbTip = hand[4];
+    const indexTip = hand[8];
+    const middleTip = hand[12];
+    const ringTip = hand[16];
+    const pinkyTip = hand[20];
+
+    const thumbIP = hand[3];
+    const indexPIP = hand[6];
+    const middlePIP = hand[10];
+    const ringPIP = hand[14];
+    const pinkyPIP = hand[18];
+
+    const wrist = hand[0];
+    const indexMCP = hand[5];
+
+    // Check if fingers are extended
+    const indexExtended = indexTip.y < indexPIP.y;
+    const middleExtended = middleTip.y < middlePIP.y;
+    const ringExtended = ringTip.y < ringPIP.y;
+    const pinkyExtended = pinkyTip.y < pinkyPIP.y;
+    const thumbExtended = thumbTip.x < thumbIP.x; // simplified
+
+    // Calculate pinch distance
+    pinchDistance = Math.sqrt(
+        Math.pow(thumbTip.x - indexTip.x, 2) +
+        Math.pow(thumbTip.y - indexTip.y, 2)
+    );
+
+    // Calculate finger spread
+    fingerSpread = Math.sqrt(
+        Math.pow(indexTip.x - pinkyTip.x, 2) +
+        Math.pow(indexTip.y - pinkyTip.y, 2)
+    );
+
+    // Calculate hand rotation
+    handRotation = Math.atan2(
+        indexMCP.y - wrist.y,
+        indexMCP.x - wrist.x
+    );
+
+    // Count extended fingers
+    const extendedCount = [indexExtended, middleExtended, ringExtended, pinkyExtended].filter(Boolean).length;
+
+    // Gesture recognition
+    if (extendedCount === 0) return 'fist';           // ✊ Spiral Vortex
+    if (extendedCount === 1 && indexExtended) return 'point';  // ☝️ Fire Fountain
+    if (extendedCount === 2 && indexExtended && middleExtended) return 'peace'; // ✌️ DNA Helix
+    if (extendedCount === 3) return 'three';           // 🤟 Matrix Rain
+    if (extendedCount >= 4) return 'open';             // ✋ Galaxy Explosion
+
+    return 'open';
+}
+
+// ============================================
+// PARTICLE EFFECT FUNCTIONS
+// ============================================
+function getActiveMode() {
+    if (currentMode === 0) {
+        // Auto mode - use gesture
+        switch (currentGesture) {
+            case 'fist': return 1;
+            case 'open': return 2;
+            case 'peace': return 3;
+            case 'point': return 4;
+            case 'three': return 5;
+            default: return 1;
+        }
+    }
+    return currentMode;
+}
+
+function updateSpiralVortex(time, hx, hy, hz) {
+    const palette = palettes.spiral;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const t = time * 0.3 + phases[i];
+
+        // Beautiful inward spiral - like the reference photo
+        const progress = i / PARTICLE_COUNT;
+        const radius = 35 * (1 - progress * 0.7) + Math.sin(t * 2 + progress * 10) * 2;
+        const angle = progress * Math.PI * 12 + time * 0.8;
+        const spiralAngle = angle + Math.sin(progress * Math.PI * 4) * 0.5;
+
+        // Add vertical 3D depth
+        const heightOffset = Math.sin(progress * Math.PI * 2 + t) * 8;
+
+        // Target positions
+        const targetX = Math.cos(spiralAngle) * radius + hx * 20 - 10;
+        const targetY = heightOffset + hy * 20 - 10;
+        const targetZ = Math.sin(spiralAngle) * radius + hz * 15;
+
+        // Smooth movement
+        positions[i3] += (targetX - positions[i3]) * 0.04;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.04;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.04;
+
+        // Beautiful cyan glow effect
+        const ci = i % palette.length;
+        const glow = 0.6 + Math.sin(t * 2.5 + progress * 15) * 0.4;
+        const brightness = 0.8 + (1 - progress) * 0.2; // brighter at center
+
+        colors[i3] = palette[ci][0] * glow * brightness;
+        colors[i3 + 1] = palette[ci][1] * glow * brightness;
+        colors[i3 + 2] = palette[ci][2] * glow * brightness;
+
+        // Larger particles at center
+        sizes[i] = (1.2 + (1 - progress) * 1.5 + Math.sin(t * 3) * 0.4) * (handDetected ? 1.4 : 0.9);
+    }
+}
+
+function updateGalaxyExplosion(time, hx, hy, hz) {
+    const palette = palettes.galaxy;
+    const spread = handDetected ? fingerSpread * 80 : 25;
+
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const t = time * 0.2 + phases[i];
+        const armIndex = i % 5;
+        const armAngle = (armIndex / 5) * Math.PI * 2;
+        const dist = (i / PARTICLE_COUNT) * spread;
+        const spiralAngle = armAngle + dist * 0.4 + time * 0.4;
+
+        const targetX = Math.cos(spiralAngle) * dist + hx * 35 - 17;
+        const targetY = (Math.sin(t * 2) * 4) + hy * 35 - 17;
+        const targetZ = Math.sin(spiralAngle) * dist + hz * 18;
+
+        positions[i3] += (targetX - positions[i3]) * 0.03;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.03;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.03;
+
+        const ci = i % palette.length;
+        const pulse = 0.7 + Math.sin(t * 2 + dist * 0.15) * 0.3;
+        const brightness = 0.8 + (1 - dist / spread) * 0.2;
+        colors[i3] = palette[ci][0] * pulse * brightness;
+        colors[i3 + 1] = palette[ci][1] * pulse * brightness;
+        colors[i3 + 2] = palette[ci][2] * pulse * brightness;
+
+        sizes[i] = (1.1 + Math.sin(t * 3) * 0.6) * (handDetected ? 1.6 : 0.8);
+    }
+}
+
+function updateDNAHelix(time, hx, hy, hz) {
+    const palette = palettes.dna;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const t = time + phases[i];
+        const progress = (i / PARTICLE_COUNT) * 2 - 1;
+        const strand = i % 2;
+        const angle = progress * Math.PI * 8 + time * 2;
+        const radius = 8 + Math.sin(t) * 2;
+
+        const helixX = Math.cos(angle + strand * Math.PI) * radius;
+        const helixY = progress * 35;
+        const helixZ = Math.sin(angle + strand * Math.PI) * radius;
+
+        const targetX = helixX + hx * 20 - 10;
+        const targetY = helixY + hy * 20 - 10;
+        const targetZ = helixZ + hz * 15;
+
+        positions[i3] += (targetX - positions[i3]) * 0.04;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.04;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.04;
+
+        // Bridge particles
+        if (i % 20 < 2) {
+            const bridgeProgress = (i % 20) / 2;
+            positions[i3] = helixX * (1 - bridgeProgress) + (-helixX) * bridgeProgress + hx * 20 - 10;
+            positions[i3 + 2] = helixZ * (1 - bridgeProgress) + (-helixZ) * bridgeProgress + hz * 15;
+        }
+
+        const ci = i % palette.length;
+        const glow = 0.5 + Math.sin(t * 4 + progress * 5) * 0.5;
+        colors[i3] = palette[ci][0] * glow;
+        colors[i3 + 1] = palette[ci][1] * glow;
+        colors[i3 + 2] = palette[ci][2] * glow;
+
+        sizes[i] = (1.2 + Math.sin(t * 3) * 0.4) * (handDetected ? 1.2 : 0.7);
+    }
+}
+
+function updateFireFountain(time, hx, hy, hz) {
+    const palette = palettes.fire;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const t = (time * 2 + phases[i] * 5) % 5;
+        const life = t / 5;
+
+        const spread = life * 15;
+        const angle = phases[i] * Math.PI * 2;
+
+        const targetX = Math.cos(angle) * spread * (0.5 + Math.sin(phases[i] * 10) * 0.5) + hx * 30 - 15;
+        const targetY = life * 40 - 20 + hy * 20 - 10;
+        const targetZ = Math.sin(angle) * spread * (0.5 + Math.cos(phases[i] * 10) * 0.5) + hz * 15;
+
+        positions[i3] += (targetX - positions[i3]) * 0.05;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.05;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.05;
+
+        // Color: yellow at bottom, red at top
+        const heatFactor = 1 - life;
+        colors[i3] = 1;
+        colors[i3 + 1] = heatFactor * 0.8;
+        colors[i3 + 2] = heatFactor * heatFactor * 0.3;
+
+        sizes[i] = (2.0 - life * 1.5) * (handDetected ? 1.4 : 0.8);
+    }
+}
+
+function updateMatrixRain(time, hx, hy, hz) {
+    const palette = palettes.matrix;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const column = i % 80;
+        const row = Math.floor(i / 80);
+        const t = (time * 1.5 + phases[i] * 3) % 4;
+
+        const targetX = (column - 40) * 0.8 + hx * 10 - 5;
+        const targetY = 30 - t * 20 + Math.sin(phases[i] * 10) * 2;
+        const targetZ = (Math.sin(column * 0.5 + time) * 5) + hz * 10;
+
+        positions[i3] += (targetX - positions[i3]) * 0.06;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.06;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.06;
+
+        const brightness = (1 - t / 4);
+        const ci = i % palette.length;
+        colors[i3] = palette[ci][0] * brightness;
+        colors[i3 + 1] = palette[ci][1] * brightness;
+        colors[i3 + 2] = palette[ci][2] * brightness;
+
+        sizes[i] = (0.8 + brightness * 1.5) * (handDetected ? 1.2 : 0.7);
+    }
+}
+
+function updateHeartShape(time, hx, hy, hz) {
+    const palette = palettes.heart;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+        const i3 = i * 3;
+        const t = time * 0.5 + phases[i];
+
+        // Heart parametric equation
+        const angle = (i / PARTICLE_COUNT) * Math.PI * 2;
+        const scale = 1.5 + Math.sin(time * 2) * 0.3; // Beating effect
+        const r = (i / PARTICLE_COUNT) * scale;
+
+        const heartX = 16 * Math.pow(Math.sin(angle), 3);
+        const heartY = 13 * Math.cos(angle) - 5 * Math.cos(2 * angle) - 2 * Math.cos(3 * angle) - Math.cos(4 * angle);
+        const heartZ = Math.sin(t * 2 + angle * 3) * 3 * r;
+
+        const targetX = heartX * r + hx * 20 - 10;
+        const targetY = heartY * r * 0.8 + hy * 20 - 5;
+        const targetZ = heartZ + hz * 10;
+
+        positions[i3] += (targetX - positions[i3]) * 0.03;
+        positions[i3 + 1] += (targetY - positions[i3 + 1]) * 0.03;
+        positions[i3 + 2] += (targetZ - positions[i3 + 2]) * 0.03;
+
+        const ci = i % palette.length;
+        const pulse = 0.6 + Math.sin(time * 3) * 0.4;
+        colors[i3] = palette[ci][0] * pulse;
+        colors[i3 + 1] = palette[ci][1] * pulse;
+        colors[i3 + 2] = palette[ci][2] * pulse;
+
+        sizes[i] = (1.3 + Math.sin(time * 3) * 0.5) * (handDetected ? 1.3 : 0.8);
+    }
+}
+
+// ============================================
+// TRAIL UPDATE
+// ============================================
+let trailIndex = 0;
+function updateTrails(time, hx, hy) {
+    if (!handDetected) return;
+
+    const worldX = (hx - 0.5) * 40;
+    const worldY = -(hy - 0.5) * 40;
+
+    for (let i = 0; i < 10; i++) {
+        const idx = ((trailIndex + i) % TRAIL_COUNT) * 3;
+        trailPositions[idx] = worldX + (Math.random() - 0.5) * 5;
+        trailPositions[idx + 1] = worldY + (Math.random() - 0.5) * 5;
+        trailPositions[idx + 2] = (Math.random() - 0.5) * 5;
+
+        const mode = getActiveMode();
+        let palette;
+        switch(mode) {
+            case 1: palette = palettes.spiral; break;
+            case 2: palette = palettes.galaxy; break;
+            case 3: palette = palettes.dna; break;
+            case 4: palette = palettes.fire; break;
+            case 5: palette = palettes.matrix; break;
+            case 6: palette = palettes.heart; break;
+            default: palette = palettes.spiral;
+        }
+        const ci = Math.floor(Math.random() * palette.length);
+        trailColors[idx] = palette[ci][0];
+        trailColors[idx + 1] = palette[ci][1];
+        trailColors[idx + 2] = palette[ci][2];
+    }
+    trailIndex = (trailIndex + 10) % TRAIL_COUNT;
+
+    // Fade old trails
+    for (let i = 0; i < TRAIL_COUNT; i++) {
+        trailPositions[i * 3 + 1] += 0.02;
+        trailColors[i * 3] *= 0.995;
+        trailColors[i * 3 + 1] *= 0.995;
+        trailColors[i * 3 + 2] *= 0.995;
+    }
+
+    trailGeometry.attributes.position.needsUpdate = true;
+    trailGeometry.attributes.color.needsUpdate = true;
+}
+
+// ============================================
+// MAIN ANIMATION LOOP
+// ============================================
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+
+    const time = clock.getElapsedTime();
+    const delta = clock.getDelta();
+
+    // Smooth hand position
+    handPosition.x += (targetHandPos.x - handPosition.x) * 0.08;
+    handPosition.y += (targetHandPos.y - handPosition.y) * 0.08;
+    handPosition.z += (targetHandPos.z - handPosition.z) * 0.08;
+
+    const hx = handPosition.x;
+    const hy = handPosition.y;
+    const hz = handPosition.z;
+
+    // Update particles based on active mode
+    const mode = getActiveMode();
+    switch (mode) {
+        case 1: updateSpiralVortex(time, hx, hy, hz); break;
+        case 2: updateGalaxyExplosion(time, hx, hy, hz); break;
+        case 3: updateDNAHelix(time, hx, hy, hz); break;
+        case 4: updateFireFountain(time, hx, hy, hz); break;
+        case 5: updateMatrixRain(time, hx, hy, hz); break;
+        case 6: updateHeartShape(time, hx, hy, hz); break;
+        default: updateSpiralVortex(time, hx, hy, hz);
+    }
+
+    // Update trails
+    updateTrails(time, hx, hy);
+
+    // Update geometry
+    particleGeometry.attributes.position.needsUpdate = true;
+    particleGeometry.attributes.color.needsUpdate = true;
+    particleGeometry.attributes.size.needsUpdate = true;
+
+    // Update uniforms
+    particleMaterial.uniforms.time.value = time;
+    trailMaterial.uniforms.time.value = time;
+
+    // Camera subtle movement
+    camera.position.x = Math.sin(time * 0.1) * 3;
+    camera.position.y = Math.cos(time * 0.15) * 2;
+    camera.lookAt(0, 0, 0);
+
+    // Rotate particle system slightly
+    particleSystem.rotation.y = time * 0.05;
+
+    renderer.render(scene, camera);
+
+    // FPS counter
+    frameCount++;
+    const now = performance.now();
+    if (now - lastFpsTime >= 1000) {
+        document.getElementById('fpsCounter').textContent = frameCount + ' FPS';
+        frameCount = 0;
+        lastFpsTime = now;
+    }
+}
+
+// ============================================
+// MEDIAPIPE HAND TRACKING
+// ============================================
+async function initHandTracking() {
+    const video = document.getElementById('webcam');
+    const handCanvas = document.getElementById('handCanvas');
+    const handCtx = handCanvas.getContext('2d');
+
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+        // Clear hand canvas
+        handCanvas.width = handCanvas.clientWidth;
+        handCanvas.height = handCanvas.clientHeight;
+        handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const landmarks = results.multiHandLandmarks[0];
+
+            // Update hand position (palm center - landmark 9)
+            const palm = landmarks[9];
+            targetHandPos.x = palm.x;
+            targetHandPos.y = palm.y;
+            targetHandPos.z = palm.z || 0;
+
+            // Detect gesture
+            const gesture = detectGesture(results.multiHandLandmarks);
+            if (gesture !== currentGesture) {
+                lastGesture = currentGesture;
+                currentGesture = gesture;
+                gestureStartTime = performance.now();
+                updateGestureUI(gesture);
+            }
+
+            handDetected = true;
+            document.getElementById('handStatus').classList.add('active');
+            document.getElementById('handStatusText').textContent = 'Hand Detected ✓';
+
+            // Draw hand landmarks
+            drawHandLandmarks(handCtx, landmarks, handCanvas.width, handCanvas.height);
+        } else {
+            handDetected = false;
+            document.getElementById('handStatus').classList.remove('active');
+            document.getElementById('handStatusText').textContent = 'Searching for hand...';
+            currentGesture = 'none';
+            updateGestureUI('none');
+        }
+    });
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480, facingMode: 'user' }
+        });
+        video.srcObject = stream;
+
+        document.getElementById('cameraStatus').classList.add('active');
+        document.getElementById('cameraStatusText').textContent = 'Camera On ✓';
+
+        const mpCamera = new Camera(video, {
+            onFrame: async () => {
+                await hands.send({ image: video });
+            },
+            width: 640,
+            height: 480
+        });
+        mpCamera.start();
+
+    } catch (err) {
+        console.error('Camera error:', err);
+        document.getElementById('cameraStatusText').textContent = 'Camera Error ✗';
+
+        // Fallback: mouse control
+        enableMouseControl();
+    }
+}
+
+// ============================================
+// DRAW HAND LANDMARKS
+// ============================================
+function drawHandLandmarks(ctx, landmarks, w, h) {
+    // Connections
+    const connections = [
+        [0,1],[1,2],[2,3],[3,4],
+        [0,5],[5,6],[6,7],[7,8],
+        [5,9],[9,10],[10,11],[11,12],
+        [9,13],[13,14],[14,15],[15,16],
+        [13,17],[17,18],[18,19],[19,20],
+        [0,17]
+    ];
+
+    ctx.strokeStyle = 'rgba(0, 255, 200, 0.6)';
+    ctx.lineWidth = 1.5;
+
+    connections.forEach(([a, b]) => {
+        ctx.beginPath();
+        ctx.moveTo(landmarks[a].x * w, landmarks[a].y * h);
+        ctx.lineTo(landmarks[b].x * w, landmarks[b].y * h);
+        ctx.stroke();
+    });
+
+    // Points
+    landmarks.forEach((lm, idx) => {
+        const x = lm.x * w;
+        const y = lm.y * h;
+        const isTip = [4, 8, 12, 16, 20].includes(idx);
+
+        ctx.beginPath();
+        ctx.arc(x, y, isTip ? 4 : 2, 0, Math.PI * 2);
+        ctx.fillStyle = isTip ? '#00ffc8' : 'rgba(0, 255, 200, 0.5)';
+        ctx.fill();
+
+        if (isTip) {
+            ctx.beginPath();
+            ctx.arc(x, y, 8, 0, Math.PI * 2);
+            ctx.strokeStyle = 'rgba(0, 255, 200, 0.3)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    });
+}
+
+// ============================================
+// MOUSE FALLBACK
+// ============================================
+function enableMouseControl() {
+    document.addEventListener('mousemove', (e) => {
+        targetHandPos.x = e.clientX / window.innerWidth;
+        targetHandPos.y = e.clientY / window.innerHeight;
+        handDetected = true;
+        document.getElementById('handStatus').classList.add('active');
+        document.getElementById('handStatusText').textContent = 'Mouse Mode ✓';
+    });
+
+    document.addEventListener('mousedown', () => {
+        currentGesture = 'fist';
+        updateGestureUI('fist');
+    });
+
+    document.addEventListener('mouseup', () => {
+        currentGesture = 'open';
+        updateGestureUI('open');
+    });
+
+    // Scroll to change gesture
+    document.addEventListener('wheel', (e) => {
+        const gestures = ['fist', 'open', 'peace', 'point', 'three'];
+        const currentIdx = gestures.indexOf(currentGesture);
+        const newIdx = (currentIdx + (e.deltaY > 0 ? 1 : -1) + gestures.length) % gestures.length;
+        currentGesture = gestures[newIdx];
+        updateGestureUI(currentGesture);
+    });
+}
+
+// ============================================
+// UI UPDATES
+// ============================================
+function updateGestureUI(gesture) {
+    // Reset all cards
+    document.querySelectorAll('.gesture-card').forEach(card => card.classList.remove('active'));
+
+    // Activate current
+    const cardId = `gestureCard_${gesture}`;
+    const card = document.getElementById(cardId);
+    if (card) card.classList.add('active');
+
+    // Update effect name
+    const effectEl = document.getElementById('currentEffect');
+    const nameEl = document.getElementById('effectName');
+    const names = {
+        'fist': 'Spiral Vortex',
+        'open': 'Galaxy Swirl',
+        'peace': 'DNA Helix',
+        'point': 'Plasma Stream',
+        'three': 'Digital Rain',
+        'none': ''
+    };
+
+    if (currentMode === 0 && names[gesture]) {
+        nameEl.textContent = names[gesture];
+        effectEl.classList.add('visible');
+        clearTimeout(effectEl._timeout);
+        effectEl._timeout = setTimeout(() => effectEl.classList.remove('visible'), 2000);
+    }
+}
+
+// ============================================
+// MODE SELECTOR
+// ============================================
+document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentMode = parseInt(btn.dataset.mode);
+
+        const modeNames = ['Auto', 'Spiral Vortex', 'Galaxy Swirl', 'DNA Helix', 'Plasma Stream', 'Digital Rain', 'Heart Beat'];
+        const nameEl = document.getElementById('effectName');
+        const effectEl = document.getElementById('currentEffect');
+        nameEl.textContent = modeNames[currentMode];
+        effectEl.classList.add('visible');
+        clearTimeout(effectEl._timeout);
+        effectEl._timeout = setTimeout(() => effectEl.classList.remove('visible'), 2000);
+    });
+});
+
+// ============================================
+// WINDOW RESIZE
+// ============================================
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================
+// INITIALIZATION
+// ============================================
+document.getElementById('startBtn').addEventListener('click', async () => {
+    document.getElementById('instructionOverlay').classList.remove('visible');
+
+    // Start hand tracking
+    await initHandTracking();
+
+    // Hide loading
+    document.getElementById('loadingScreen').classList.add('hidden');
+});
+
+// Start animation immediately
+animate();
+
+// Show instruction overlay after loading
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        document.getElementById('loadingScreen').classList.add('hidden');
+        document.getElementById('instructionOverlay').classList.add('visible');
+    }, 1500);
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    const key = parseInt(e.key);
+    if (key >= 0 && key <= 6) {
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            if (parseInt(btn.dataset.mode) === key) btn.click();
+        });
+    }
+});
+</script>
+
+</body>
+</html>
